@@ -1,0 +1,297 @@
+/* =====================================================================
+   Color-by-Number — global styles
+   ===================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100dvh;
+}
+
+/* =====================================================================
+   Layout
+   ===================================================================== */
+
+.cbn-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.cbn-header {
+  padding: 1rem 1.5rem 0.5rem;
+  text-align: center;
+}
+
+.cbn-header h1 {
+  font-size: clamp(1.4rem, 4vw, 2.2rem);
+  letter-spacing: 0.03em;
+  color: #fff;
+}
+
+/* =====================================================================
+   Setup section
+   ===================================================================== */
+
+.cbn-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.5rem 1rem 2rem;
+}
+
+.setup-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.upload-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.2rem;
+  border-radius: 8px;
+  background: #16213e;
+  border: 2px dashed #4ecca3;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #4ecca3;
+  transition: background 0.2s;
+}
+.upload-label:hover { background: #0f3460; }
+.upload-label input[type="file"] { display: none; }
+
+.preview-img {
+  max-height: 80px;
+  max-width: 120px;
+  border-radius: 6px;
+  border: 2px solid #4ecca3;
+  object-fit: cover;
+}
+
+label { color: #ccc; font-size: 0.95rem; }
+
+select, input[type="number"] {
+  background: #16213e;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.95rem;
+}
+select:focus, input[type="number"]:focus {
+  outline: 2px solid #4ecca3;
+  outline-offset: 2px;
+}
+input[type="number"] { width: 70px; }
+
+button {
+  padding: 0.55rem 1.4rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: opacity 0.2s, transform 0.1s;
+}
+button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+#generate-btn {
+  background: #4ecca3;
+  color: #0f3460;
+}
+#generate-btn:not(:disabled):hover { opacity: 0.88; }
+
+.btn-secondary {
+  background: #16213e;
+  color: #4ecca3;
+  border: 1.5px solid #4ecca3;
+}
+.btn-secondary:hover { background: #0f3460; }
+
+/* =====================================================================
+   Game section
+   ===================================================================== */
+
+.cbn-game {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 0.5rem 0.75rem 1rem;
+  gap: 0.75rem;
+}
+
+.cbn-game-inner {
+  display: flex;
+  flex: 1;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Board */
+.cbn-board-wrap {
+  overflow: auto;
+  max-width: 100%;
+  max-height: 80dvh;
+  border: 2px solid #333;
+  border-radius: 8px;
+  background: #222;
+  cursor: crosshair;
+  flex-shrink: 0;
+}
+
+#board-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+/* Sidebar */
+.cbn-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 160px;
+  max-width: 220px;
+  flex: 1;
+}
+
+/* Progress */
+.progress-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+#progress-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #4ecca3;
+  text-align: center;
+}
+
+.progress-bar {
+  height: 10px;
+  background: #333;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #4ecca3;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+/* Palette */
+.palette-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: 60dvh;
+  padding-right: 4px;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #16213e;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.palette-item:hover { background: #0f3460; }
+.palette-item.active {
+  border-color: #4ecca3;
+  background: #0f3460;
+}
+
+.palette-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+.palette-num {
+  font-weight: 700;
+  font-size: 0.95rem;
+  min-width: 24px;
+  color: #e0e0e0;
+}
+
+.palette-count {
+  font-size: 0.75rem;
+  color: #888;
+  margin-left: auto;
+}
+
+/* Completion banner */
+.completion-banner {
+  text-align: center;
+  font-size: clamp(1.1rem, 4vw, 1.8rem);
+  font-weight: 700;
+  color: #4ecca3;
+  padding: 0.75rem 1rem;
+  background: rgba(78, 204, 163, 0.1);
+  border: 2px solid #4ecca3;
+  border-radius: 10px;
+  margin: 0.25rem 0;
+  animation: pop-in 0.4s ease;
+}
+
+@keyframes pop-in {
+  from { transform: scale(0.8); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Utilities */
+.hidden { display: none !important; }
+
+/* =====================================================================
+   Mobile adjustments
+   ===================================================================== */
+
+@media (max-width: 640px) {
+  .cbn-game-inner {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .cbn-sidebar {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .palette-panel {
+    flex-direction: row;
+    flex-wrap: wrap;
+    max-height: none;
+    overflow-y: visible;
+  }
+
+  .palette-item {
+    flex-direction: column;
+    align-items: center;
+    padding: 6px;
+    gap: 2px;
+    min-width: 48px;
+  }
+
+  .palette-count { margin-left: 0; }
+}
