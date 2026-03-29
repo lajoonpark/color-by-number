@@ -15,7 +15,9 @@ import {
 import {
   renderBoard,
   flashWrong,
-  canvasPosToCellCoords,
+  screenToCell,
+  BASE_CELL,
+  type Camera,
 } from "./boardRenderer";
 
 // ---------------------------------------------------------------------------
@@ -79,8 +81,14 @@ app.innerHTML = `
 
   <section class="cbn-game hidden" id="game-section">
     <div class="cbn-game-inner">
-      <div class="cbn-board-wrap">
+      <div class="cbn-board-wrap" id="board-wrap">
         <canvas id="board-canvas"></canvas>
+        <div class="zoom-controls" id="zoom-controls">
+          <button class="zoom-btn" id="zoom-out-btn" title="Zoom Out">−</button>
+          <span id="zoom-level">100%</span>
+          <button class="zoom-btn" id="zoom-in-btn"  title="Zoom In">+</button>
+          <button class="zoom-btn" id="zoom-fit-btn" title="Fit to screen">⊡</button>
+        </div>
       </div>
       <aside class="cbn-sidebar">
         <div class="progress-box">
@@ -105,21 +113,26 @@ app.innerHTML = `
 // Element handles
 // ---------------------------------------------------------------------------
 
-const fileInput       = document.getElementById("file-input")       as HTMLInputElement;
-const previewImg      = document.getElementById("preview-img")      as HTMLImageElement;
-const difficultySelect= document.getElementById("difficulty-select")as HTMLSelectElement;
-const gridWidthInput  = document.getElementById("grid-width")       as HTMLInputElement;
-const gridHeightInput = document.getElementById("grid-height")      as HTMLInputElement;
-const numColorsInput  = document.getElementById("num-colors")       as HTMLInputElement;
-const generateBtn     = document.getElementById("generate-btn")     as HTMLButtonElement;
-const setupSection    = document.getElementById("setup-section")!;
-const gameSection     = document.getElementById("game-section")!;
-const boardCanvas     = document.getElementById("board-canvas")     as HTMLCanvasElement;
-const palettePanel    = document.getElementById("palette-panel")!;
-const progressLabel   = document.getElementById("progress-label")!;
-const progressFill    = document.getElementById("progress-fill")    as HTMLElement;
-const newPuzzleBtn    = document.getElementById("new-puzzle-btn")!;
-const completionBanner= document.getElementById("completion-banner")!;
+const fileInput        = document.getElementById("file-input")        as HTMLInputElement;
+const previewImg       = document.getElementById("preview-img")       as HTMLImageElement;
+const difficultySelect = document.getElementById("difficulty-select") as HTMLSelectElement;
+const gridWidthInput   = document.getElementById("grid-width")        as HTMLInputElement;
+const gridHeightInput  = document.getElementById("grid-height")       as HTMLInputElement;
+const numColorsInput   = document.getElementById("num-colors")        as HTMLInputElement;
+const generateBtn      = document.getElementById("generate-btn")      as HTMLButtonElement;
+const setupSection     = document.getElementById("setup-section")!;
+const gameSection      = document.getElementById("game-section")!;
+const boardWrap        = document.getElementById("board-wrap")!;
+const boardCanvas      = document.getElementById("board-canvas")      as HTMLCanvasElement;
+const palettePanel     = document.getElementById("palette-panel")!;
+const progressLabel    = document.getElementById("progress-label")!;
+const progressFill     = document.getElementById("progress-fill")     as HTMLElement;
+const newPuzzleBtn     = document.getElementById("new-puzzle-btn")!;
+const completionBanner = document.getElementById("completion-banner")!;
+const zoomInBtn        = document.getElementById("zoom-in-btn")       as HTMLButtonElement;
+const zoomOutBtn       = document.getElementById("zoom-out-btn")      as HTMLButtonElement;
+const zoomFitBtn       = document.getElementById("zoom-fit-btn")      as HTMLButtonElement;
+const zoomLevelSpan    = document.getElementById("zoom-level")        as HTMLElement;
 
 // ---------------------------------------------------------------------------
 // State
@@ -127,8 +140,19 @@ const completionBanner= document.getElementById("completion-banner")!;
 
 let uploadedImage: HTMLImageElement | null = null;
 let gameState: GameState | null = null;
-let cellSize = 16;
 let animFrameId = 0;
+
+// Camera state
+let camera: Camera = { zoom: 1, panX: 0, panY: 0 };
+
+// ---------------------------------------------------------------------------
+// Zoom / pan constants
+// ---------------------------------------------------------------------------
+
+const MIN_ZOOM      = 0.05;
+const MAX_ZOOM      = 20;
+const ZOOM_STEP     = 1.3;
+const DRAG_THRESHOLD = 5;   // CSS pixels of movement before we consider it a drag
 
 // ---------------------------------------------------------------------------
 // Setup interactions
@@ -178,15 +202,19 @@ function generatePuzzleFromUI() {
       const puzzle    = generatePuzzle(quantized);
       gameState = createGameState(puzzle);
 
-      cellSize = computeCellSize(gridWidth, gridHeight);
-
       setupSection.classList.add("hidden");
       gameSection.classList.remove("hidden");
       completionBanner.classList.add("hidden");
 
       buildPalettePanel();
-      scheduleRender();
-      updateProgress();
+
+      // Fit board to viewport on first load (deferred so the DOM is laid out)
+      requestAnimationFrame(() => {
+        resizeObserver.observe(boardWrap);
+        fitToScreen();
+        scheduleRender();
+        updateProgress();
+      });
     } finally {
       generateBtn.disabled = false;
       generateBtn.textContent = "Generate Puzzle";
@@ -195,13 +223,47 @@ function generatePuzzleFromUI() {
 }
 
 // ---------------------------------------------------------------------------
-// Cell size fitting
+// Camera helpers
 // ---------------------------------------------------------------------------
 
-function computeCellSize(w: number, h: number): number {
-  const maxW = Math.floor((window.innerWidth  * 0.65) / w);
-  const maxH = Math.floor((window.innerHeight * 0.82) / h);
-  return Math.max(8, Math.min(maxW, maxH, 32));
+function clampPan() {
+  if (!gameState) return;
+  const { gridWidth, gridHeight } = gameState.puzzle;
+  const cssW   = boardCanvas.clientWidth;
+  const cssH   = boardCanvas.clientHeight;
+  const boardW = gridWidth  * BASE_CELL * camera.zoom;
+  const boardH = gridHeight * BASE_CELL * camera.zoom;
+  const margin = 50; // keep at least this many px of the board visible
+  camera.panX  = Math.max(-(boardW - margin), Math.min(cssW - margin, camera.panX));
+  camera.panY  = Math.max(-(boardH - margin), Math.min(cssH - margin, camera.panY));
+}
+
+function fitToScreen() {
+  if (!gameState) return;
+  const { gridWidth, gridHeight } = gameState.puzzle;
+  const cssW    = boardCanvas.clientWidth  || boardWrap.clientWidth;
+  const cssH    = boardCanvas.clientHeight || boardWrap.clientHeight;
+  if (!cssW || !cssH) return;
+  const fitZoom = Math.min(cssW / (gridWidth * BASE_CELL), cssH / (gridHeight * BASE_CELL));
+  camera.zoom   = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, fitZoom));
+  camera.panX   = (cssW - gridWidth  * BASE_CELL * camera.zoom) / 2;
+  camera.panY   = (cssH - gridHeight * BASE_CELL * camera.zoom) / 2;
+  updateZoomLevel();
+}
+
+function zoomAround(newZoom: number, cssPivotX: number, cssPivotY: number) {
+  newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
+  const ratio  = newZoom / camera.zoom;
+  camera.panX  = cssPivotX - (cssPivotX - camera.panX) * ratio;
+  camera.panY  = cssPivotY - (cssPivotY - camera.panY) * ratio;
+  camera.zoom  = newZoom;
+  clampPan();
+  updateZoomLevel();
+  scheduleRender();
+}
+
+function updateZoomLevel() {
+  zoomLevelSpan.textContent = `${Math.round(camera.zoom * 100)}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,16 +333,153 @@ function scheduleRender() {
 
 function doRender() {
   if (!gameState) return;
-  renderBoard(boardCanvas, gameState, cellSize);
+  renderBoard(boardCanvas, gameState, camera);
 }
 
 // ---------------------------------------------------------------------------
-// Board interaction
+// Board interaction — unified pointer events (mouse + touch + stylus)
 // ---------------------------------------------------------------------------
 
-boardCanvas.addEventListener("click", (e) => {
+/** Track all currently active pointer contacts for pinch detection. */
+const activePointers = new Map<number, { x: number; y: number }>();
+
+let dragStart: { x: number; y: number } | null = null;
+let isDragging  = false;
+
+// Pinch-to-zoom tracking
+let pinchStartDist   = 0;
+let pinchStartZoom   = 0;
+let pinchStartPanX   = 0;
+let pinchStartPanY   = 0;
+let pinchStartMidCssX = 0;
+let pinchStartMidCssY = 0;
+
+function pointerDist(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+boardCanvas.addEventListener("pointerdown", (e) => {
+  boardCanvas.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.size === 2) {
+    // Begin pinch gesture
+    const pts = [...activePointers.values()];
+    pinchStartDist    = pointerDist(pts[0], pts[1]);
+    pinchStartZoom    = camera.zoom;
+    pinchStartPanX    = camera.panX;
+    pinchStartPanY    = camera.panY;
+    const rect = boardCanvas.getBoundingClientRect();
+    pinchStartMidCssX = (pts[0].x + pts[1].x) / 2 - rect.left;
+    pinchStartMidCssY = (pts[0].y + pts[1].y) / 2 - rect.top;
+    isDragging = true; // suppress paint when fingers lift
+    dragStart  = null;
+  } else if (activePointers.size === 1) {
+    dragStart  = { x: e.clientX, y: e.clientY };
+    isDragging = false;
+  }
+});
+
+boardCanvas.addEventListener("pointermove", (e) => {
+  if (!activePointers.has(e.pointerId)) return;
+
+  const prev = activePointers.get(e.pointerId)!;
+  const dx   = e.clientX - prev.x;
+  const dy   = e.clientY - prev.y;
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.size >= 2) {
+    // Pinch zoom
+    if (pinchStartDist > 0) {
+      const pts     = [...activePointers.values()];
+      const newDist = pointerDist(pts[0], pts[1]);
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoom * newDist / pinchStartDist));
+
+      const rect = boardCanvas.getBoundingClientRect();
+      const midCssX = (pts[0].x + pts[1].x) / 2 - rect.left;
+      const midCssY = (pts[0].y + pts[1].y) / 2 - rect.top;
+
+      // Keep the original pinch midpoint fixed in board space
+      const ratio  = newZoom / pinchStartZoom;
+      camera.panX  = midCssX - (pinchStartMidCssX - pinchStartPanX) * ratio;
+      camera.panY  = midCssY - (pinchStartMidCssY - pinchStartPanY) * ratio;
+      camera.zoom  = newZoom;
+      clampPan();
+      updateZoomLevel();
+      scheduleRender();
+    }
+    return;
+  }
+
+  // Single pointer: drag to pan
+  if (dragStart !== null) {
+    if (!isDragging && Math.hypot(dx, dy) > DRAG_THRESHOLD) {
+      isDragging = true;
+      boardCanvas.style.cursor = "grabbing";
+    }
+    if (isDragging) {
+      camera.panX += dx;
+      camera.panY += dy;
+      clampPan();
+      scheduleRender();
+    }
+  }
+});
+
+boardCanvas.addEventListener("pointerup", (e) => {
+  const wasLast = activePointers.size === 1; // this pointer is the last one
+  activePointers.delete(e.pointerId);
+
+  if (wasLast) {
+    // All pointers lifted — treat as a tap/click if no drag occurred
+    if (!isDragging && dragStart !== null && gameState && !gameState.completed) {
+      paintAtPosition(e.clientX, e.clientY);
+    }
+    dragStart      = null;
+    isDragging     = false;
+    pinchStartDist = 0;
+    boardCanvas.style.cursor = "crosshair";
+  } else {
+    // Still have at least one finger down (just finished a pinch)
+    pinchStartDist = 0;
+    // Let the remaining finger continue as a pan — prevent accidental paint
+    const remaining = Array.from(activePointers.values())[0];
+    dragStart  = { x: remaining.x, y: remaining.y };
+    isDragging = true;
+  }
+});
+
+boardCanvas.addEventListener("pointercancel", (e) => {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size === 0) {
+    dragStart      = null;
+    isDragging     = false;
+    pinchStartDist = 0;
+    boardCanvas.style.cursor = "crosshair";
+  }
+});
+
+// Prevent browser scroll/zoom from interfering with board interactions
+boardCanvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect      = boardCanvas.getBoundingClientRect();
+  const cssPivotX = e.clientX - rect.left;
+  const cssPivotY = e.clientY - rect.top;
+  // deltaY > 0 = scroll down = zoom out
+  const factor = e.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
+  zoomAround(camera.zoom * factor, cssPivotX, cssPivotY);
+}, { passive: false });
+
+// ---------------------------------------------------------------------------
+// Paint helper
+// ---------------------------------------------------------------------------
+
+function paintAtPosition(clientX: number, clientY: number) {
   if (!gameState || gameState.completed) return;
-  const coords = canvasPosToCellCoords(boardCanvas, e.clientX, e.clientY, cellSize);
+  const coords = screenToCell(
+    boardCanvas, clientX, clientY, camera,
+    gameState.puzzle.gridWidth, gameState.puzzle.gridHeight,
+  );
   if (!coords) return;
   const [col, row] = coords;
 
@@ -289,28 +488,37 @@ boardCanvas.addEventListener("click", (e) => {
   if (result === "wrong") {
     flashWrong(col, row);
     scheduleRender();
-    // Re-render after flash fades
     setTimeout(() => scheduleRender(), 450);
   } else if (result === "correct") {
     updatePaletteCounts();
     updateProgress();
     scheduleRender();
-
     if (gameState.completed) {
       completionBanner.classList.remove("hidden");
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Zoom buttons
+// ---------------------------------------------------------------------------
+
+zoomInBtn.addEventListener("click", () => {
+  const cx = boardCanvas.clientWidth  / 2;
+  const cy = boardCanvas.clientHeight / 2;
+  zoomAround(camera.zoom * ZOOM_STEP, cx, cy);
 });
 
-// Support touch
-boardCanvas.addEventListener("touchstart", (e) => {
-  e.preventDefault();
-  const touch = e.touches[0];
-  boardCanvas.dispatchEvent(new MouseEvent("click", {
-    clientX: touch.clientX,
-    clientY: touch.clientY,
-  }));
-}, { passive: false });
+zoomOutBtn.addEventListener("click", () => {
+  const cx = boardCanvas.clientWidth  / 2;
+  const cy = boardCanvas.clientHeight / 2;
+  zoomAround(camera.zoom / ZOOM_STEP, cx, cy);
+});
+
+zoomFitBtn.addEventListener("click", () => {
+  fitToScreen();
+  scheduleRender();
+});
 
 // ---------------------------------------------------------------------------
 // Progress
@@ -320,8 +528,19 @@ function updateProgress() {
   if (!gameState) return;
   const pct = getProgress(gameState);
   progressLabel.textContent = `${pct}%`;
-  progressFill.style.width = `${pct}%`;
+  progressFill.style.width  = `${pct}%`;
 }
+
+// ---------------------------------------------------------------------------
+// Resize observer — re-render when the board container changes size
+// ---------------------------------------------------------------------------
+
+const resizeObserver = new ResizeObserver(() => {
+  if (gameState) {
+    clampPan();
+    scheduleRender();
+  }
+});
 
 // ---------------------------------------------------------------------------
 // New puzzle
@@ -329,13 +548,16 @@ function updateProgress() {
 
 newPuzzleBtn.addEventListener("click", () => {
   cancelAnimationFrame(animFrameId);
+  resizeObserver.disconnect();
   gameState = null;
   setupSection.classList.remove("hidden");
   gameSection.classList.add("hidden");
   completionBanner.classList.add("hidden");
   fileInput.value = "";
-  previewImg.src = "";
+  previewImg.src  = "";
   previewImg.classList.add("hidden");
   generateBtn.disabled = true;
   uploadedImage = null;
+  camera = { zoom: 1, panX: 0, panY: 0 };
 });
+
